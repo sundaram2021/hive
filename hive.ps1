@@ -11,6 +11,40 @@
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
+function Get-WorkingUvPath {
+    # pyenv-win can expose a non-functional uv shim, so verify candidates first.
+    $candidates = @()
+
+    $commands = @(Get-Command uv -All -ErrorAction SilentlyContinue)
+    foreach ($cmd in $commands) {
+        if ($cmd.Source) {
+            $candidates += $cmd.Source
+        } elseif ($cmd.Definition) {
+            $candidates += $cmd.Definition
+        } elseif ($cmd.Name) {
+            $candidates += $cmd.Name
+        }
+    }
+
+    $defaultUvExe = Join-Path $env:USERPROFILE ".local\bin\uv.exe"
+    if (Test-Path $defaultUvExe) {
+        $candidates += $defaultUvExe
+    }
+
+    foreach ($candidate in ($candidates | Where-Object { $_ } | Select-Object -Unique)) {
+        try {
+            $null = & $candidate --version 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                return $candidate
+            }
+        } catch {
+            # Try the next candidate.
+        }
+    }
+
+    return $null
+}
+
 # ── Validate project directory ──────────────────────────────────────
 
 if ((Get-Location).Path -ne $ScriptDir) {
@@ -30,15 +64,10 @@ if (-not (Test-Path (Join-Path $ScriptDir ".venv"))) {
 
 # ── Ensure uv is available ──────────────────────────────────────────
 
-if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-    # Check default install location before giving up
-    $uvExe = Join-Path $env:USERPROFILE ".local\bin\uv.exe"
-    if (Test-Path $uvExe) {
-        $env:Path = (Split-Path $uvExe) + ";" + $env:Path
-    } else {
-        Write-Error "uv is not installed. Run .\quickstart.ps1 first."
-        exit 1
-    }
+$uvExe = Get-WorkingUvPath
+if (-not $uvExe) {
+    Write-Error "uv is not installed or is not runnable. Run .\quickstart.ps1 first."
+    exit 1
 }
 
 # ── Load environment variables from Windows Registry ────────────────
@@ -80,4 +109,4 @@ if (-not $env:HIVE_CREDENTIAL_KEY) {
 # ── Run the Hive CLI ────────────────────────────────────────────────
 # PYTHONUTF8=1: use UTF-8 for default encoding (fixes charmap decode errors on Windows)
 $env:PYTHONUTF8 = "1"
-& uv run hive @args
+& $uvExe run hive @args
