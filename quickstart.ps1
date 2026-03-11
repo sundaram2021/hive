@@ -1355,7 +1355,7 @@ if ($SubscriptionMode -eq "kimi_code") {
             # Health check the new key
             Write-Host "  Verifying Kimi API key... " -NoNewline
             try {
-                $hcResult = & uv run python (Join-Path $ScriptDir "scripts/check_llm_key.py") "kimi" $apiKey "https://api.kimi.com/coding" 2>$null
+                $hcResult = & $UvCmd run python (Join-Path $ScriptDir "scripts/check_llm_key.py") "kimi" $apiKey "https://api.kimi.com/coding" 2>$null
                 $hcJson = $hcResult | ConvertFrom-Json
                 if ($hcJson.valid -eq $true) {
                     Write-Color -Text "ok" -Color Green
