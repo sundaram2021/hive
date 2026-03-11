@@ -100,7 +100,10 @@ except ImportError:
             for t in tokens:
                 if "=" in t and not t.startswith("-"):
                     continue
-                if t.lower().rstrip(".exe") in _BLOCKED_EXEC:
+                executable = t.lower()
+                if executable.endswith(".exe"):
+                    executable = executable[:-4]
+                if executable in _BLOCKED_EXEC:
                     raise CommandBlockedError(
                         f"Command blocked for safety: '{t}' is not allowed."
                     )

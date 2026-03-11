@@ -134,6 +134,14 @@ _BLOCKED_PATTERNS: list[re.Pattern[str]] = [
 _SHELL_SPLIT_PATTERN = re.compile(r"\s*(?:;|&&|\|\||\|)\s*")
 
 
+def _normalize_executable_name(token: str) -> str:
+    """Normalize executable names for matching (e.g. cmd.exe -> cmd)."""
+    normalized = token.lower()
+    if normalized.endswith(".exe"):
+        return normalized[:-4]
+    return normalized
+
+
 def _extract_executable(segment: str) -> str:
     """Extract the first token (executable) from a command segment.
 
@@ -146,7 +154,7 @@ def _extract_executable(segment: str) -> str:
         if "=" in token and not token.startswith("-"):
             continue
         # Return lowercase for case-insensitive matching
-        return token.lower().rstrip(".exe")
+        return _normalize_executable_name(token)
     return ""
 
 
