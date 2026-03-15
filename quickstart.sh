@@ -413,7 +413,7 @@ if [ "$USE_ASSOC_ARRAYS" = true ]; then
         ["minimax"]="MiniMax-M2.5"
         ["gemini"]="gemini-3-flash-preview"
         ["groq"]="moonshotai/kimi-k2-instruct-0905"
-        ["cerebras"]="gpt-oss-120b"
+        ["cerebras"]="zai-glm-4.7"
         ["mistral"]="mistral-large-latest"
         ["together_ai"]="meta-llama/Llama-3.3-70B-Instruct-Turbo"
         ["deepseek"]="deepseek-chat"
@@ -432,8 +432,8 @@ if [ "$USE_ASSOC_ARRAYS" = true ]; then
         ["gemini:1"]="gemini-3.1-pro-preview"
         ["groq:0"]="moonshotai/kimi-k2-instruct-0905"
         ["groq:1"]="openai/gpt-oss-120b"
-        ["cerebras:0"]="gpt-oss-120b"
-        ["cerebras:1"]="qwen-3-235b-a22b-instruct-2507"
+        ["cerebras:0"]="zai-glm-4.7"
+        ["cerebras:1"]="qwen3-235b-a22b-instruct-2507"
     )
 
     declare -A MODEL_CHOICES_LABEL=(
@@ -447,8 +447,8 @@ if [ "$USE_ASSOC_ARRAYS" = true ]; then
         ["gemini:1"]="Gemini 3.1 Pro - Best quality"
         ["groq:0"]="Kimi K2 - Best quality (recommended)"
         ["groq:1"]="GPT-OSS 120B - Fast reasoning"
-        ["cerebras:0"]="GPT-OSS 120B - Best quality (recommended)"
-        ["cerebras:1"]="Qwen 3 235B A22B - Frontier reasoning"
+        ["cerebras:0"]="ZAI-GLM 4.7 - Best quality (recommended)"
+        ["cerebras:1"]="Qwen3 235B - Frontier reasoning"
     )
 
     declare -A MODEL_CHOICES_MAXTOKENS=(
@@ -479,8 +479,8 @@ if [ "$USE_ASSOC_ARRAYS" = true ]; then
         ["gemini:1"]=900000      # Gemini 3.1 Pro — 1M context window
         ["groq:0"]=120000        # Kimi K2 — 128k context window
         ["groq:1"]=120000        # GPT-OSS 120B — 128k context window
-        ["cerebras:0"]=120000    # GPT-OSS 120B — 128k context window
-        ["cerebras:1"]=120000    # Qwen 3 235B A22B — 128k context window
+        ["cerebras:0"]=120000    # ZAI-GLM 4.7 — 128k context window
+        ["cerebras:1"]=120000    # Qwen3 235B — 128k context window
     )
 
     declare -A MODEL_CHOICES_COUNT=(
@@ -531,7 +531,7 @@ else
 
     # Default models by provider id (parallel arrays)
     MODEL_PROVIDER_IDS=(anthropic openai minimax gemini groq cerebras mistral together_ai deepseek)
-    MODEL_DEFAULTS=("claude-haiku-4-5-20251001" "gpt-5-mini" "MiniMax-M2.5" "gemini-3-flash-preview" "moonshotai/kimi-k2-instruct-0905" "gpt-oss-120b" "mistral-large-latest" "meta-llama/Llama-3.3-70B-Instruct-Turbo" "deepseek-chat")
+    MODEL_DEFAULTS=("claude-haiku-4-5-20251001" "gpt-5-mini" "MiniMax-M2.5" "gemini-3-flash-preview" "moonshotai/kimi-k2-instruct-0905" "zai-glm-4.7" "mistral-large-latest" "meta-llama/Llama-3.3-70B-Instruct-Turbo" "deepseek-chat")
 
     # Helper: get provider display name for an env var
     get_provider_name() {
@@ -575,8 +575,8 @@ else
     # Model choices per provider - flat parallel arrays with provider offsets
     # Provider order: anthropic(4), openai(2), gemini(2), groq(2), cerebras(2)
     MC_PROVIDERS=(anthropic anthropic anthropic anthropic openai openai gemini gemini groq groq cerebras cerebras)
-    MC_IDS=("claude-haiku-4-5-20251001" "claude-sonnet-4-20250514" "claude-sonnet-4-5-20250929" "claude-opus-4-6" "gpt-5-mini" "gpt-5.2" "gemini-3-flash-preview" "gemini-3.1-pro-preview" "moonshotai/kimi-k2-instruct-0905" "openai/gpt-oss-120b" "gpt-oss-120b" "qwen-3-235b-a22b-instruct-2507")
-    MC_LABELS=("Haiku 4.5 - Fast + cheap (recommended)" "Sonnet 4 - Fast + capable" "Sonnet 4.5 - Best balance" "Opus 4.6 - Most capable" "GPT-5 Mini - Fast + cheap (recommended)" "GPT-5.2 - Most capable" "Gemini 3 Flash - Fast (recommended)" "Gemini 3.1 Pro - Best quality" "Kimi K2 - Best quality (recommended)" "GPT-OSS 120B - Fast reasoning" "GPT-OSS 120B - Best quality (recommended)" "Qwen 3 235B A22B - Frontier reasoning")
+    MC_IDS=("claude-haiku-4-5-20251001" "claude-sonnet-4-20250514" "claude-sonnet-4-5-20250929" "claude-opus-4-6" "gpt-5-mini" "gpt-5.2" "gemini-3-flash-preview" "gemini-3.1-pro-preview" "moonshotai/kimi-k2-instruct-0905" "openai/gpt-oss-120b" "zai-glm-4.7" "qwen3-235b-a22b-instruct-2507")
+    MC_LABELS=("Haiku 4.5 - Fast + cheap (recommended)" "Sonnet 4 - Fast + capable" "Sonnet 4.5 - Best balance" "Opus 4.6 - Most capable" "GPT-5 Mini - Fast + cheap (recommended)" "GPT-5.2 - Most capable" "Gemini 3 Flash - Fast (recommended)" "Gemini 3.1 Pro - Best quality" "Kimi K2 - Best quality (recommended)" "GPT-OSS 120B - Fast reasoning" "ZAI-GLM 4.7 - Best quality (recommended)" "Qwen3 235B - Frontier reasoning")
     MC_MAXTOKENS=(8192 8192 16384 32768 16384 16384 8192 8192 8192 8192 8192 8192)
     # Max context tokens per model (same order as MC_PROVIDERS/MC_IDS above)
     # Based on actual context windows with ~10% headroom for system prompt + output.
@@ -673,6 +673,42 @@ fi
 HIVE_CONFIG_DIR="$HOME/.hive"
 HIVE_CONFIG_FILE="$HIVE_CONFIG_DIR/configuration.json"
 
+is_windows_posix_shell() {
+    case "${OSTYPE:-}" in
+        msys*|cygwin*)
+            return 0
+            ;;
+    esac
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+to_python_path() {
+    local path="$1"
+
+    if is_windows_posix_shell; then
+        if command -v cygpath >/dev/null 2>&1; then
+            cygpath -w "$path"
+            return
+        fi
+        case "$path" in
+            /[a-zA-Z]/*)
+                local drive="${path:1:1}"
+                printf '%s\n' "${drive}:/${path:3}"
+                return
+                ;;
+        esac
+    fi
+
+    printf '%s\n' "$path"
+}
+
+PY_HIVE_CONFIG_FILE="$(to_python_path "$HIVE_CONFIG_FILE")"
+
 # Detect user's shell rc file
 detect_shell_rc() {
     local shell_name
@@ -704,52 +740,6 @@ detect_shell_rc() {
 
 SHELL_RC_FILE=$(detect_shell_rc)
 SHELL_NAME=$(basename "$SHELL")
-
-provider_supports_dynamic_models() {
-    case "$1" in
-        anthropic|openai|gemini|groq|cerebras)
-            return 0
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
-get_dynamic_model_lines() {
-    local provider_id="$1"
-    local api_key="$2"
-    local api_base="${3:-}"
-    local raw
-
-    if [ -z "$api_key" ]; then
-        return 1
-    fi
-
-    if [ -n "$api_base" ]; then
-        raw=$(uv run python "$SCRIPT_DIR/scripts/list_provider_models.py" "$provider_id" "$api_key" "$api_base" 2>/dev/null) || return 1
-    else
-        raw=$(uv run python "$SCRIPT_DIR/scripts/list_provider_models.py" "$provider_id" "$api_key" 2>/dev/null) || return 1
-    fi
-
-    echo "$raw" | "$PYTHON_CMD" -c "
-import json, sys
-try:
-    payload = json.loads(sys.stdin.read() or '{}')
-except json.JSONDecodeError:
-    raise SystemExit(1)
-if not payload.get('ok'):
-    raise SystemExit(1)
-for m in payload.get('models', []):
-    mid = str(m.get('id', '')).strip()
-    if not mid:
-        continue
-    label = str(m.get('label', mid)).replace('\t', ' ').replace('\n', ' ').strip()
-    max_tokens = int(m.get('max_tokens') or 8192)
-    max_ctx = int(m.get('max_context_tokens') or 120000)
-    print(f'{mid}\t{label}\t{max_tokens}\t{max_ctx}')
-" 2>/dev/null
-}
 
 # Prompt the user to choose a model for their selected provider.
 # Sets SELECTED_MODEL, SELECTED_MAX_TOKENS, and SELECTED_MAX_CONTEXT_TOKENS.
@@ -825,59 +815,16 @@ prompt_model_selection() {
     done
 }
 
-verify_model_access_if_possible() {
-    local provider_id="$1"
-    local model_id="$2"
-
-    # Subscription modes do not have an API key env var to validate with.
-    if [ -z "${SELECTED_ENV_VAR:-}" ] || [ -z "$provider_id" ] || [ -z "$model_id" ]; then
-        return 0
-    fi
-
-    local api_key="${!SELECTED_ENV_VAR:-}"
-    if [ -z "$api_key" ]; then
-        return 0
-    fi
-
-    echo -n "  Verifying model access... "
-    local hc_result
-    if [ -n "${SELECTED_API_BASE:-}" ]; then
-        hc_result=$(uv run python "$SCRIPT_DIR/scripts/check_llm_key.py" "$provider_id" "$api_key" "$SELECTED_API_BASE" "$model_id" 2>/dev/null) || true
-    else
-        hc_result=$(uv run python "$SCRIPT_DIR/scripts/check_llm_key.py" "$provider_id" "$api_key" "$model_id" 2>/dev/null) || true
-    fi
-
-    local hc_valid
-    local hc_msg
-    hc_valid=$(echo "$hc_result" | "$PYTHON_CMD" -c "import json,sys; print(json.loads(sys.stdin.read()).get('valid',''))" 2>/dev/null) || true
-    hc_msg=$(echo "$hc_result" | "$PYTHON_CMD" -c "import json,sys; print(json.loads(sys.stdin.read()).get('message',''))" 2>/dev/null) || true
-
-    if [ "$hc_valid" = "True" ]; then
-        echo -e "${GREEN}ok${NC}"
-        return 0
-    elif [ "$hc_valid" = "False" ]; then
-        echo -e "${RED}failed${NC}"
-        echo -e "  ${YELLOW}Warning: $hc_msg${NC}"
-        return 1
-    else
-        echo -e "${YELLOW}--${NC}"
-        echo -e "  ${DIM}Could not verify model access (network/rate limit). Continuing.${NC}"
-        return 0
-    fi
-}
-
 # Function to save configuration
-# Args: provider_id env_var model max_tokens max_context_tokens [use_claude_code_sub] [api_base] [use_codex_sub] [auth_mode]
+# Args: provider_id env_var model max_tokens max_context_tokens [auth_mode] [api_base]
 save_configuration() {
     local provider_id="$1"
     local env_var="$2"
     local model="$3"
     local max_tokens="$4"
     local max_context_tokens="$5"
-    local use_claude_code_sub="${6:-}"
+    local auth_mode="${6:-api_key}"
     local api_base="${7:-}"
-    local use_codex_sub="${8:-}"
-    local auth_mode="${9:-api_key}"
 
     # Fallbacks if not provided
     if [ -z "$model" ]; then
@@ -892,7 +839,7 @@ save_configuration() {
 
     mkdir -p "$HIVE_CONFIG_DIR"
 
-    $PYTHON_CMD - \
+    "$PYTHON_CMD" - \
         "$provider_id" \
         "$env_var" \
         "$model" \
@@ -900,32 +847,14 @@ save_configuration() {
         "$max_context_tokens" \
         "$auth_mode" \
         "$api_base" \
-        "$use_claude_code_sub" \
-        "$use_codex_sub" \
-        "$HIVE_CONFIG_FILE" <<'PY'
-import datetime
+        "$PY_HIVE_CONFIG_FILE" <<'PY'
 import json
-import os
-import re
 import sys
+from datetime import UTC, datetime
 
-(
-    provider_id,
-    env_var,
-    model,
-    max_tokens,
-    max_context_tokens,
-    auth_mode,
-    api_base,
-    use_claude_code_sub,
-    use_codex_sub,
-    hive_config_file,
-) = sys.argv[1:11]
-
-if os.name == "nt":
-    m = re.match(r"^/([a-zA-Z])/(.*)$", hive_config_file)
-    if m:
-        hive_config_file = f"{m.group(1).upper()}:/{m.group(2)}"
+provider_id, env_var, model, max_tokens, max_context_tokens, auth_mode, api_base, config_path = (
+    sys.argv[1:9]
+)
 
 config = {
     "llm": {
@@ -933,28 +862,18 @@ config = {
         "model": model,
         "max_tokens": int(max_tokens),
         "max_context_tokens": int(max_context_tokens),
-        "auth_mode": auth_mode,
         "api_key_env_var": env_var,
+        "auth_mode": auth_mode or "api_key",
     },
-    "created_at": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+    "created_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00"),
 }
-
-if use_claude_code_sub == "true":
-    config["llm"]["use_claude_code_subscription"] = True
-    # No api_key_env_var needed for Claude Code subscription
+if config["llm"]["auth_mode"] in ("claude_code", "codex", "kimi_code"):
+    # Subscription auth reads credentials from the local CLI state, not env vars.
     config["llm"].pop("api_key_env_var", None)
-if use_codex_sub == "true":
-    config["llm"]["use_codex_subscription"] = True
-    # No api_key_env_var needed for Codex subscription
-    config["llm"].pop("api_key_env_var", None)
-if auth_mode == "kimi_code":
-    config["llm"]["use_kimi_code_subscription"] = True
 if api_base:
     config["llm"]["api_base"] = api_base
-
-with open(hive_config_file, "w", encoding="utf-8") as f:
+with open(config_path, "w", encoding="utf-8") as f:
     json.dump(config, f, indent=2)
-
 print(json.dumps(config, indent=2))
 PY
 }
@@ -1032,27 +951,31 @@ PREV_MODEL=""
 PREV_ENV_VAR=""
 PREV_SUB_MODE=""
 if [ -f "$HIVE_CONFIG_FILE" ]; then
-    eval "$($PYTHON_CMD -c "
+    eval "$("$PYTHON_CMD" - "$PY_HIVE_CONFIG_FILE" <<'PY'
 import json, sys
 try:
-    with open('$HIVE_CONFIG_FILE') as f:
+    with open(sys.argv[1], encoding='utf-8-sig') as f:
         c = json.load(f)
     llm = c.get('llm', {})
     print(f'PREV_PROVIDER={llm.get(\"provider\", \"\")}')
     print(f'PREV_MODEL={llm.get(\"model\", \"\")}')
     print(f'PREV_ENV_VAR={llm.get(\"api_key_env_var\", \"\")}')
     sub = ''
-    if llm.get('auth_mode') in ('claude_code', 'codex', 'kimi_code'):
-        sub = llm.get('auth_mode')
+    auth_mode = llm.get('auth_mode', '')
+    if auth_mode == 'claude_code': sub = 'claude_code'
+    elif auth_mode == 'codex': sub = 'codex'
+    elif auth_mode == 'kimi_code': sub = 'kimi_code'
+    elif llm.get('provider', '') == 'minimax' or 'api.minimax.io' in llm.get('api_base', ''): sub = 'minimax_code'
+    elif 'api.z.ai' in llm.get('api_base', ''): sub = 'zai_code'
+    elif 'api.kimi.com' in llm.get('api_base', ''): sub = 'kimi_code'
     elif llm.get('use_claude_code_subscription'): sub = 'claude_code'
     elif llm.get('use_codex_subscription'): sub = 'codex'
     elif llm.get('use_kimi_code_subscription'): sub = 'kimi_code'
-    elif llm.get('provider', '') == 'minimax' or 'api.minimax.io' in llm.get('api_base', ''): sub = 'minimax_code'
-    elif 'api.z.ai' in llm.get('api_base', ''): sub = 'zai_code'
     print(f'PREV_SUB_MODE={sub}')
 except Exception:
     pass
-" 2>/dev/null)" || true
+PY
+)" || true
 fi
 
 # Compute default menu number from previous config (only if credential is still valid)
@@ -1440,31 +1363,63 @@ fi
 
 # Prompt for model if not already selected (manual provider path)
 if [ -n "$SELECTED_PROVIDER_ID" ] && [ -z "$SELECTED_MODEL" ]; then
-    while true; do
-        prompt_model_selection "$SELECTED_PROVIDER_ID"
-        if verify_model_access_if_possible "$SELECTED_PROVIDER_ID" "$SELECTED_MODEL"; then
-            break
-        fi
-        echo -e "  ${YELLOW}Please choose another model.${NC}"
-    done
+    prompt_model_selection "$SELECTED_PROVIDER_ID"
 fi
 
 # Save configuration if a provider was selected
 if [ -n "$SELECTED_PROVIDER_ID" ]; then
     echo ""
     echo -n "  Saving configuration... "
-    if [ "$SUBSCRIPTION_MODE" = "claude_code" ]; then
-        save_configuration "$SELECTED_PROVIDER_ID" "" "$SELECTED_MODEL" "$SELECTED_MAX_TOKENS" "$SELECTED_MAX_CONTEXT_TOKENS" "true" "" "" "claude_code" > /dev/null
-    elif [ "$SUBSCRIPTION_MODE" = "codex" ]; then
-        save_configuration "$SELECTED_PROVIDER_ID" "" "$SELECTED_MODEL" "$SELECTED_MAX_TOKENS" "$SELECTED_MAX_CONTEXT_TOKENS" "" "" "true" "codex" > /dev/null
-    elif [ "$SUBSCRIPTION_MODE" = "zai_code" ]; then
-        save_configuration "$SELECTED_PROVIDER_ID" "$SELECTED_ENV_VAR" "$SELECTED_MODEL" "$SELECTED_MAX_TOKENS" "$SELECTED_MAX_CONTEXT_TOKENS" "" "https://api.z.ai/api/coding/paas/v4" "" "api_key" > /dev/null
-    elif [ "$SUBSCRIPTION_MODE" = "minimax_code" ]; then
-        save_configuration "$SELECTED_PROVIDER_ID" "$SELECTED_ENV_VAR" "$SELECTED_MODEL" "$SELECTED_MAX_TOKENS" "$SELECTED_MAX_CONTEXT_TOKENS" "" "$SELECTED_API_BASE" "" "api_key" > /dev/null
-    elif [ "$SUBSCRIPTION_MODE" = "kimi_code" ]; then
-        save_configuration "$SELECTED_PROVIDER_ID" "$SELECTED_ENV_VAR" "$SELECTED_MODEL" "$SELECTED_MAX_TOKENS" "$SELECTED_MAX_CONTEXT_TOKENS" "" "$SELECTED_API_BASE" "" "kimi_code" > /dev/null
-    else
-        save_configuration "$SELECTED_PROVIDER_ID" "$SELECTED_ENV_VAR" "$SELECTED_MODEL" "$SELECTED_MAX_TOKENS" "$SELECTED_MAX_CONTEXT_TOKENS" "" "" "" "api_key" > /dev/null
+    save_args=(
+        "$SELECTED_PROVIDER_ID"
+        "$SELECTED_ENV_VAR"
+        "$SELECTED_MODEL"
+        "$SELECTED_MAX_TOKENS"
+        "$SELECTED_MAX_CONTEXT_TOKENS"
+        "api_key"
+    )
+    case "$SUBSCRIPTION_MODE" in
+        claude_code)
+            save_args=(
+                "$SELECTED_PROVIDER_ID"
+                ""
+                "$SELECTED_MODEL"
+                "$SELECTED_MAX_TOKENS"
+                "$SELECTED_MAX_CONTEXT_TOKENS"
+                "claude_code"
+            )
+            ;;
+        codex)
+            save_args=(
+                "$SELECTED_PROVIDER_ID"
+                ""
+                "$SELECTED_MODEL"
+                "$SELECTED_MAX_TOKENS"
+                "$SELECTED_MAX_CONTEXT_TOKENS"
+                "codex"
+            )
+            ;;
+        zai_code)
+            save_args+=("https://api.z.ai/api/coding/paas/v4")
+            ;;
+        minimax_code)
+            save_args+=("$SELECTED_API_BASE")
+            ;;
+        kimi_code)
+            save_args=(
+                "$SELECTED_PROVIDER_ID"
+                ""
+                "$SELECTED_MODEL"
+                "$SELECTED_MAX_TOKENS"
+                "$SELECTED_MAX_CONTEXT_TOKENS"
+                "kimi_code"
+            )
+            ;;
+    esac
+    if ! save_configuration "${save_args[@]}" > /dev/null; then
+        echo -e "${RED}failed${NC}"
+        echo -e "  ${RED}Could not write ~/.hive/configuration.json${NC}"
+        exit 1
     fi
     echo -e "${GREEN}⬢${NC}"
     echo -e "  ${DIM}~/.hive/configuration.json${NC}"
@@ -1479,38 +1434,33 @@ echo ""
 echo -e "${GREEN}⬢${NC} Browser automation enabled"
 
 # Patch gcu_enabled into configuration.json
-if ! "$PYTHON_CMD" - "$HIVE_CONFIG_FILE" <<'PY'
-import datetime
+if [ -f "$HIVE_CONFIG_FILE" ]; then
+    "$PYTHON_CMD" - "$PY_HIVE_CONFIG_FILE" <<'PY'
 import json
-import os
-import re
 import sys
 
 config_path = sys.argv[1]
-if os.name == "nt":
-    m = re.match(r"^/([a-zA-Z])/(.*)$", config_path)
-    if m:
-        config_path = f"{m.group(1).upper()}:/{m.group(2)}"
-
-os.makedirs(os.path.dirname(config_path), exist_ok=True)
-config = {}
-if os.path.exists(config_path):
-    try:
-        with open(config_path, encoding="utf-8-sig") as f:
-            config = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        config = {}
-
+with open(config_path, encoding="utf-8-sig") as f:
+    config = json.load(f)
 config["gcu_enabled"] = True
-config.setdefault(
-    "created_at", datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00")
-)
-
 with open(config_path, "w", encoding="utf-8") as f:
     json.dump(config, f, indent=2)
 PY
-then
-    echo -e "${YELLOW}  Warning: Could not persist gcu_enabled in ~/.hive/configuration.json (continuing).${NC}"
+else
+    mkdir -p "$HIVE_CONFIG_DIR"
+    "$PYTHON_CMD" - "$PY_HIVE_CONFIG_FILE" <<'PY'
+import json
+import sys
+from datetime import UTC, datetime
+
+config_path = sys.argv[1]
+config = {
+    "gcu_enabled": True,
+    "created_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+}
+with open(config_path, "w", encoding="utf-8") as f:
+    json.dump(config, f, indent=2)
+PY
 fi
 
 echo ""
@@ -1759,11 +1709,8 @@ fi
 if [ "$FRONTEND_BUILT" = true ]; then
     echo -e "${BOLD}Dashboard ready.${NC}"
     echo ""
-    echo -e "  If you changed API keys in this setup, run:"
-    echo -e "     ${CYAN}source $SHELL_RC_FILE${NC}"
-    echo ""
     echo -e "  Start it when you're ready:"
-    echo -e "     ${CYAN}./hive open${NC}"
+    echo -e "     ${CYAN}hive open${NC}"
     echo ""
 else
     # No frontend — show manual instructions
@@ -1786,7 +1733,7 @@ else
     echo ""
     echo -e "  Launch the interactive dashboard to browse and run agents:"
     echo -e "  You can start an example agent or an agent built by yourself:"
-    echo -e "     ${CYAN}./hive open${NC}"
+    echo -e "     ${CYAN}hive open${NC}"
     echo ""
     echo -e "${DIM}Run ./quickstart.sh again to reconfigure.${NC}"
     echo ""
