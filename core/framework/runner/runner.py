@@ -9,7 +9,15 @@ from datetime import UTC
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from framework.config import get_hive_config, get_max_context_tokens, get_preferred_model
+from framework.config import (
+    get_api_base,
+    get_api_key,
+    get_hive_config,
+    get_llm_extra_kwargs,
+    get_max_context_tokens,
+    get_preferred_model,
+    resolve_llm_auth_mode,
+)
 from framework.credentials.validation import (
     ensure_credential_key_env as _ensure_credential_key_env,
 )
@@ -1132,70 +1140,29 @@ class AgentRunner:
         else:
             from framework.llm.litellm import LiteLLMProvider
 
-            # Check if a subscription mode is configured
             config = get_hive_config()
             llm_config = config.get("llm", {})
-            use_claude_code = llm_config.get("use_claude_code_subscription", False)
-            use_codex = llm_config.get("use_codex_subscription", False)
-            use_kimi_code = llm_config.get("use_kimi_code_subscription", False)
-            api_base = llm_config.get("api_base")
+            auth_mode = resolve_llm_auth_mode(llm_config)
+            api_base = get_api_base(llm_config)
+            extra_kwargs = get_llm_extra_kwargs(llm_config)
+            api_key = get_api_key(llm_config)
 
-            api_key = None
-            if use_claude_code:
-                # Get OAuth token from Claude Code subscription
-                api_key = get_claude_code_token()
-                if not api_key:
-                    print("Warning: Claude Code subscription configured but no token found.")
-                    print("Run 'claude' to authenticate, then try again.")
-            elif use_codex:
-                # Get OAuth token from Codex subscription
-                api_key = get_codex_token()
-                if not api_key:
-                    print("Warning: Codex subscription configured but no token found.")
-                    print("Run 'codex' to authenticate, then try again.")
-            elif use_kimi_code:
-                # Get API key from Kimi Code CLI config (~/.kimi/config.toml)
-                api_key = get_kimi_code_token()
-                if not api_key:
-                    print("Warning: Kimi Code subscription configured but no key found.")
-                    print("Run 'kimi /login' to authenticate, then try again.")
+            if auth_mode == "claude_code" and not api_key:
+                print("Warning: Claude Code subscription configured but no token found.")
+                print("Run 'claude' to authenticate, then try again.")
+            elif auth_mode == "codex" and not api_key:
+                print("Warning: Codex subscription configured but no token found.")
+                print("Run 'codex' to authenticate, then try again.")
+            elif auth_mode == "kimi_code" and not api_key:
+                print("Warning: Kimi Code subscription configured but no key found.")
+                print("Run 'kimi /login' to authenticate, then try again.")
 
-            if api_key and use_claude_code:
-                # Use litellm's built-in Anthropic OAuth support.
-                # The lowercase "authorization" key triggers OAuth detection which
-                # adds the required anthropic-beta and browser-access headers.
+            if api_key:
                 self._llm = LiteLLMProvider(
                     model=self.model,
                     api_key=api_key,
                     api_base=api_base,
-                    extra_headers={"authorization": f"Bearer {api_key}"},
-                )
-            elif api_key and use_codex:
-                # OpenAI Codex subscription routes through the ChatGPT backend
-                # (chatgpt.com/backend-api/codex/responses), NOT the standard
-                # OpenAI API.  The consumer OAuth token lacks platform API scopes.
-                extra_headers: dict[str, str] = {
-                    "Authorization": f"Bearer {api_key}",
-                    "User-Agent": "CodexBar",
-                }
-                account_id = get_codex_account_id()
-                if account_id:
-                    extra_headers["ChatGPT-Account-Id"] = account_id
-                self._llm = LiteLLMProvider(
-                    model=self.model,
-                    api_key=api_key,
-                    api_base="https://chatgpt.com/backend-api/codex",
-                    extra_headers=extra_headers,
-                    store=False,
-                    allowed_openai_params=["store"],
-                )
-            elif api_key and use_kimi_code:
-                # Kimi Code subscription uses the Kimi coding API (OpenAI-compatible).
-                # The api_base is set automatically by LiteLLMProvider for kimi/ models.
-                self._llm = LiteLLMProvider(
-                    model=self.model,
-                    api_key=api_key,
-                    api_base=api_base,
+                    **extra_kwargs,
                 )
             else:
                 # Local models (e.g. Ollama) don't need an API key
@@ -1204,6 +1171,11 @@ class AgentRunner:
                         model=self.model,
                         api_base=api_base,
                     )
+                elif auth_mode != "api_key":
+                    # Explicit subscription auth should fail closed. Falling back to a
+                    # generic API key here would keep stale live sessions on the old
+                    # provider path after the user switched auth modes.
+                    pass
                 else:
                     # Fall back to environment variable
                     # First check api_key_env_var from config (set by quickstart)
@@ -1244,6 +1216,21 @@ class AgentRunner:
                             f"Failed to initialize LLM for local model '{self.model}'. "
                             f"Ensure your local LLM server is running "
                             f"(e.g. 'ollama serve' for Ollama)."
+                        )
+                    if auth_mode == "claude_code":
+                        raise CredentialError(
+                            "Claude Code subscription configured but no token found. "
+                            "Run 'claude' to authenticate, then try again."
+                        )
+                    if auth_mode == "codex":
+                        raise CredentialError(
+                            "Codex subscription configured but no token found. "
+                            "Run 'codex' to authenticate, then try again."
+                        )
+                    if auth_mode == "kimi_code":
+                        raise CredentialError(
+                            "Kimi Code subscription configured but no key found. "
+                            "Run 'kimi /login' to authenticate, then try again."
                         )
                     api_key_env = self._get_api_key_env_var(self.model)
                     hint = (

@@ -163,6 +163,8 @@ def _make_session(
     edges=None,
     log_store=None,
     with_queen=True,
+    requested_model=None,
+    llm_config_fingerprint=None,
 ):
     """Create a mock Session backed by a temp directory."""
     agent_path = Path(tmp_dir) if tmp_dir else Path("/tmp/test_agent")
@@ -181,6 +183,8 @@ def _make_session(
         event_bus=mock_event_bus,
         llm=mock_llm,
         loaded_at=1000000.0,
+        requested_model=requested_model,
+        llm_config_fingerprint=llm_config_fingerprint,
         queen_executor=queen_executor,
         worker_id=agent_id,
         worker_path=agent_path,
@@ -412,6 +416,79 @@ class TestSessionCRUD:
             assert data["has_worker"] is True
             assert "entry_points" in data
             assert "graphs" in data
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_hides_stale_live_sessions_without_stopping(self):
+        session = _make_session(llm_config_fingerprint="stale-fingerprint")
+        app = _make_app_with_session(session)
+        manager = app["manager"]
+        manager.is_session_stale = MagicMock(return_value=True)
+        manager.stop_session = AsyncMock(
+            side_effect=lambda session_id: manager._sessions.pop(session_id, None) is not None
+        )
+
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/api/sessions")
+            data = await resp.json()
+            assert manager.get_session("test_agent") is session
+
+        assert resp.status == 200
+        assert data["sessions"] == []
+
+    @pytest.mark.asyncio
+    async def test_get_session_does_not_stop_stale_live_session(self):
+        session = _make_session(llm_config_fingerprint="stale-fingerprint")
+        app = _make_app_with_session(session)
+        manager = app["manager"]
+        manager.is_session_stale = MagicMock(return_value=True)
+        manager.stop_session = AsyncMock(
+            side_effect=lambda session_id: manager._sessions.pop(session_id, None) is not None
+        )
+
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/api/sessions/test_agent")
+            data = await resp.json()
+            assert manager.get_session("test_agent") is session
+
+        assert resp.status == 200
+        assert data["session_id"] == "test_agent"
+
+    @pytest.mark.asyncio
+    async def test_reconnect_session_stops_stale_live_session_and_returns_cold_info(
+        self, tmp_agent_dir
+    ):
+        tmp_path, _, _ = tmp_agent_dir
+        session_id = "test_agent"
+        cold_parts_dir = (
+            tmp_path / ".hive" / "queen" / "session" / session_id / "conversations" / "parts"
+        )
+        cold_parts_dir.mkdir(parents=True)
+        (cold_parts_dir / "0001.json").write_text(
+            json.dumps({"seq": 1, "role": "user", "content": "hello"})
+        )
+
+        session = _make_session(
+            agent_id=session_id,
+            llm_config_fingerprint="stale-fingerprint",
+        )
+        app = _make_app_with_session(session)
+        manager = app["manager"]
+        manager.is_session_stale = MagicMock(return_value=True)
+        manager.stop_session = AsyncMock(
+            side_effect=lambda target_id: manager._sessions.pop(target_id, None) is not None
+        )
+
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.post(f"/api/sessions/{session_id}/reconnect")
+            data = await resp.json()
+            assert manager.get_session(session_id) is None
+
+        assert resp.status == 200
+        assert data["session_id"] == session_id
+        assert data["cold"] is True
+        assert data["live"] is False
+        assert data["has_messages"] is True
+        assert (session_id,) in [call.args for call in manager.stop_session.await_args_list]
 
     @pytest.mark.asyncio
     async def test_get_session_not_found(self):

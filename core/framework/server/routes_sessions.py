@@ -68,6 +68,48 @@ def _session_to_live_dict(session) -> dict:
     }
 
 
+def _session_to_detail_dict(session) -> dict:
+    """Serialize a live Session with optional worker graph metadata."""
+    data = _session_to_live_dict(session)
+
+    if session.worker_runtime:
+        rt = session.worker_runtime
+        data["entry_points"] = [
+            {
+                "id": ep.id,
+                "name": ep.name,
+                "entry_node": ep.entry_node,
+                "trigger_type": ep.trigger_type,
+                "trigger_config": ep.trigger_config,
+                **(
+                    {"next_fire_in": nf}
+                    if (nf := rt.get_timer_next_fire_in(ep.id)) is not None
+                    else {}
+                ),
+            }
+            for ep in rt.get_entry_points()
+        ]
+        # Append triggers from triggers.json (stored on session)
+        runner = getattr(session, "runner", None)
+        graph_entry = runner.graph.entry_node if runner else ""
+        for t in getattr(session, "available_triggers", {}).values():
+            entry = {
+                "id": t.id,
+                "name": t.description or t.id,
+                "entry_node": graph_entry,
+                "trigger_type": t.trigger_type,
+                "trigger_config": t.trigger_config,
+                "task": t.task,
+            }
+            mono = getattr(session, "trigger_next_fire", {}).get(t.id)
+            if mono is not None:
+                entry["next_fire_in"] = max(0.0, mono - time.monotonic())
+            data["entry_points"].append(entry)
+        data["graphs"] = session.worker_runtime.list_graphs()
+
+    return data
+
+
 def _credential_error_response(exc: Exception, agent_path: str | None) -> web.Response | None:
     """If *exc* is a CredentialError, return a 424 with structured credential info.
 
@@ -183,7 +225,13 @@ async def handle_create_session(request: web.Request) -> web.Response:
 async def handle_list_live_sessions(request: web.Request) -> web.Response:
     """GET /api/sessions — list all active sessions."""
     manager = _get_manager(request)
-    sessions = [_session_to_live_dict(s) for s in manager.list_sessions()]
+    # Keep GET read-only. Stale live sessions are hidden here and recycled on
+    # reconnect so listing sessions never mutates server state.
+    sessions = [
+        _session_to_live_dict(session)
+        for session in manager.list_sessions()
+        if not manager.is_session_stale(session)
+    ]
     return web.json_response({"sessions": sessions})
 
 
@@ -213,44 +261,36 @@ async def handle_get_live_session(request: web.Request) -> web.Response:
             status=404,
         )
 
-    data = _session_to_live_dict(session)
+    return web.json_response(_session_to_detail_dict(session))
 
-    if session.worker_runtime:
-        rt = session.worker_runtime
-        data["entry_points"] = [
-            {
-                "id": ep.id,
-                "name": ep.name,
-                "entry_node": ep.entry_node,
-                "trigger_type": ep.trigger_type,
-                "trigger_config": ep.trigger_config,
-                **(
-                    {"next_fire_in": nf}
-                    if (nf := rt.get_timer_next_fire_in(ep.id)) is not None
-                    else {}
-                ),
-            }
-            for ep in rt.get_entry_points()
-        ]
-        # Append triggers from triggers.json (stored on session)
-        runner = getattr(session, "runner", None)
-        graph_entry = runner.graph.entry_node if runner else ""
-        for t in getattr(session, "available_triggers", {}).values():
-            entry = {
-                "id": t.id,
-                "name": t.description or t.id,
-                "entry_node": graph_entry,
-                "trigger_type": t.trigger_type,
-                "trigger_config": t.trigger_config,
-                "task": t.task,
-            }
-            mono = getattr(session, "trigger_next_fire", {}).get(t.id)
-            if mono is not None:
-                entry["next_fire_in"] = max(0.0, mono - time.monotonic())
-            data["entry_points"].append(entry)
-        data["graphs"] = session.worker_runtime.list_graphs()
 
-    return web.json_response(data)
+async def handle_reconnect_session(request: web.Request) -> web.Response:
+    """POST /api/sessions/{session_id}/reconnect — recycle stale sessions on reopen."""
+    manager = _get_manager(request)
+    session_id = request.match_info["session_id"]
+    session = manager.get_session(session_id)
+
+    if session is not None and manager.is_session_stale(session):
+        # Reconnect is the destructive path: if config changed, drop the cached
+        # live runtime so the client can create a fresh session with current auth.
+        await manager.stop_session(session_id)
+        session = None
+
+    if session is None:
+        if manager.is_loading(session_id):
+            return web.json_response(
+                {"session_id": session_id, "loading": True},
+                status=202,
+            )
+        cold_info = SessionManager.get_cold_session_info(session_id)
+        if cold_info is not None:
+            return web.json_response(cold_info)
+        return web.json_response(
+            {"error": f"Session '{session_id}' not found"},
+            status=404,
+        )
+
+    return web.json_response(_session_to_detail_dict(session))
 
 
 async def handle_stop_session(request: web.Request) -> web.Response:
@@ -938,6 +978,7 @@ def register_routes(app: web.Application) -> None:
     app.router.add_get("/api/sessions/history", handle_session_history)
     app.router.add_delete("/api/sessions/history/{session_id}", handle_delete_history_session)
     app.router.add_get("/api/sessions/{session_id}", handle_get_live_session)
+    app.router.add_post("/api/sessions/{session_id}/reconnect", handle_reconnect_session)
     app.router.add_delete("/api/sessions/{session_id}", handle_stop_session)
 
     # Worker lifecycle

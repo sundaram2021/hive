@@ -29,6 +29,10 @@ export const sessionsApi = {
   get: (sessionId: string) =>
     api.get<LiveSessionDetail>(`/sessions/${sessionId}`),
 
+  /** Reconnect to a session, recycling stale live runtimes when config changed. */
+  reconnect: (sessionId: string) =>
+    api.post<LiveSessionDetail>(`/sessions/${sessionId}/reconnect`),
+
   /** Stop a session entirely. */
   stop: (sessionId: string) =>
     api.delete<{ session_id: string; stopped: boolean }>(

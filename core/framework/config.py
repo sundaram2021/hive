@@ -5,12 +5,13 @@ and every agent template share one implementation instead of copy-pasting
 helper functions.
 """
 
+import hashlib
 import json
 import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from framework.graph.edge import DEFAULT_MAX_TOKENS
 
@@ -43,12 +44,25 @@ def get_hive_config() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def get_preferred_model() -> str:
-    """Return the user's preferred LLM model string (e.g. 'anthropic/claude-sonnet-4-20250514')."""
-    llm = get_hive_config().get("llm", {})
+LLMAuthMode = Literal["api_key", "claude_code", "codex", "kimi_code"]
+_SUPPORTED_AUTH_MODES = {"api_key", "claude_code", "codex", "kimi_code"}
+
+
+def _get_llm_config(llm: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return the LLM subsection from configuration.json."""
+    return llm if llm is not None else get_hive_config().get("llm", {})
+
+
+def _get_preferred_model(llm: dict[str, Any]) -> str:
+    """Return the fully-qualified model name for an llm config block."""
     if llm.get("provider") and llm.get("model"):
         return f"{llm['provider']}/{llm['model']}"
     return "anthropic/claude-sonnet-4-20250514"
+
+
+def get_preferred_model() -> str:
+    """Return the user's preferred LLM model string (e.g. 'anthropic/claude-sonnet-4-20250514')."""
+    return _get_preferred_model(_get_llm_config())
 
 
 def get_max_tokens() -> int:
@@ -64,52 +78,52 @@ def get_max_context_tokens() -> int:
     return get_hive_config().get("llm", {}).get("max_context_tokens", DEFAULT_MAX_CONTEXT_TOKENS)
 
 
-def get_api_key() -> str | None:
-    """Return the API key, supporting env var, Claude Code subscription, Codex, and ZAI Code.
+def resolve_llm_auth_mode(llm: dict[str, Any] | None = None) -> LLMAuthMode:
+    """Resolve the active authentication mode for the LLM configuration.
 
-    Priority:
-    1. Claude Code subscription (``use_claude_code_subscription: true``)
-       reads the OAuth token from ``~/.claude/.credentials.json``.
-    2. Codex subscription (``use_codex_subscription: true``)
-       reads the OAuth token from macOS Keychain or ``~/.codex/auth.json``.
-    3. Environment variable named in ``api_key_env_var``.
+    ``auth_mode`` is authoritative when present so stale legacy flags cannot
+    keep a session on the wrong credential path after the user switches modes.
     """
-    llm = get_hive_config().get("llm", {})
-
-    # Claude Code subscription: read OAuth token directly
+    llm = _get_llm_config(llm)
+    auth_mode = str(llm.get("auth_mode", "")).strip().lower()
+    if auth_mode in _SUPPORTED_AUTH_MODES:
+        return cast(LLMAuthMode, auth_mode)
     if llm.get("use_claude_code_subscription"):
-        try:
+        return "claude_code"
+    if llm.get("use_codex_subscription"):
+        return "codex"
+    if llm.get("use_kimi_code_subscription"):
+        return "kimi_code"
+    return "api_key"
+
+
+def _get_subscription_api_key(auth_mode: LLMAuthMode) -> str | None:
+    """Resolve tokens for subscription-backed auth modes."""
+    try:
+        if auth_mode == "claude_code":
             from framework.runner.runner import get_claude_code_token
 
-            token = get_claude_code_token()
-            if token:
-                return token
-        except ImportError:
-            pass
-
-    # Codex subscription: read OAuth token from Keychain / auth.json
-    if llm.get("use_codex_subscription"):
-        try:
+            return get_claude_code_token()
+        if auth_mode == "codex":
             from framework.runner.runner import get_codex_token
 
-            token = get_codex_token()
-            if token:
-                return token
-        except ImportError:
-            pass
-
-    # Kimi Code subscription: read API key from ~/.kimi/config.toml
-    if llm.get("use_kimi_code_subscription"):
-        try:
+            return get_codex_token()
+        if auth_mode == "kimi_code":
             from framework.runner.runner import get_kimi_code_token
 
-            token = get_kimi_code_token()
-            if token:
-                return token
-        except ImportError:
-            pass
+            return get_kimi_code_token()
+    except ImportError:
+        return None
+    return None
 
-    # Standard env-var path (covers ZAI Code and all API-key providers)
+
+def get_api_key(llm: dict[str, Any] | None = None) -> str | None:
+    """Return the API key or subscription token for the active auth mode."""
+    llm = _get_llm_config(llm)
+    auth_mode = resolve_llm_auth_mode(llm)
+    if auth_mode != "api_key":
+        return _get_subscription_api_key(auth_mode)
+
     api_key_env_var = llm.get("api_key_env_var")
     if api_key_env_var:
         return os.environ.get(api_key_env_var)
@@ -121,38 +135,48 @@ def get_gcu_enabled() -> bool:
     return get_hive_config().get("gcu_enabled", True)
 
 
-def get_api_base() -> str | None:
-    """Return the api_base URL for OpenAI-compatible endpoints, if configured."""
-    llm = get_hive_config().get("llm", {})
-    if llm.get("use_codex_subscription"):
+def get_gcu_viewport_scale() -> float:
+    """Return GCU viewport scale factor (0.1-1.0), default 0.8."""
+    scale = get_hive_config().get("gcu_viewport_scale", 0.8)
+    if isinstance(scale, (int, float)) and 0.1 <= scale <= 1.0:
+        return float(scale)
+    return 0.8
+
+
+def get_api_base(llm: dict[str, Any] | None = None) -> str | None:
+    """Return the api_base URL for the active auth mode, if configured."""
+    llm = _get_llm_config(llm)
+    auth_mode = resolve_llm_auth_mode(llm)
+    if auth_mode == "codex":
         # Codex subscription routes through the ChatGPT backend, not api.openai.com.
         return "https://chatgpt.com/backend-api/codex"
-    if llm.get("use_kimi_code_subscription"):
+    if auth_mode == "kimi_code":
         # Kimi Code uses an Anthropic-compatible endpoint (no /v1 suffix).
         return "https://api.kimi.com/coding"
     return llm.get("api_base")
 
 
-def get_llm_extra_kwargs() -> dict[str, Any]:
+def get_llm_extra_kwargs(llm: dict[str, Any] | None = None) -> dict[str, Any]:
     """Return extra kwargs for LiteLLMProvider (e.g. OAuth headers).
 
-    When ``use_claude_code_subscription`` is enabled, returns
+    When Claude Code auth is enabled, returns
     ``extra_headers`` with the OAuth Bearer token so that litellm's
     built-in Anthropic OAuth handler adds the required beta headers.
 
-    When ``use_codex_subscription`` is enabled, returns
+    When Codex auth is enabled, returns
     ``extra_headers`` with the Bearer token, ``ChatGPT-Account-Id``,
     and ``store=False`` (required by the ChatGPT backend).
     """
-    llm = get_hive_config().get("llm", {})
-    if llm.get("use_claude_code_subscription"):
-        api_key = get_api_key()
+    llm = _get_llm_config(llm)
+    auth_mode = resolve_llm_auth_mode(llm)
+    if auth_mode == "claude_code":
+        api_key = get_api_key(llm)
         if api_key:
             return {
                 "extra_headers": {"authorization": f"Bearer {api_key}"},
             }
-    if llm.get("use_codex_subscription"):
-        api_key = get_api_key()
+    if auth_mode == "codex":
+        api_key = get_api_key(llm)
         if api_key:
             headers: dict[str, str] = {
                 "Authorization": f"Bearer {api_key}",
@@ -172,6 +196,32 @@ def get_llm_extra_kwargs() -> dict[str, Any]:
                 "allowed_openai_params": ["store"],
             }
     return {}
+
+
+def get_llm_runtime_fingerprint(
+    model: str | None = None,
+    llm: dict[str, Any] | None = None,
+) -> str:
+    """Return a stable digest of the effective LLM runtime settings.
+
+    Excludes live credential material so routine OAuth token refreshes do not
+    make an unchanged session look stale.
+    """
+    llm = _get_llm_config(llm)
+    payload = {
+        "auth_mode": resolve_llm_auth_mode(llm),
+        "provider": llm.get("provider"),
+        "model": model or _get_preferred_model(llm),
+        "api_base": get_api_base(llm),
+        "api_key_env_var": llm.get("api_key_env_var"),
+    }
+    encoded = json.dumps(
+        payload,
+        default=str,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 # ---------------------------------------------------------------------------

@@ -703,7 +703,7 @@ export default function Workspace() {
 
         if (storedId) {
           try {
-            const sessionData = await sessionsApi.get(storedId);
+            const sessionData = await sessionsApi.reconnect(storedId);
             if (sessionData.cold) {
               // Server restarted — files on disk, no live runtime
               coldRestoreId = storedId;
@@ -865,7 +865,7 @@ export default function Workspace() {
         || historySourceId;
       if (storedSessionId) {
         try {
-          const sessionData = await sessionsApi.get(storedSessionId);
+          const sessionData = await sessionsApi.reconnect(storedSessionId);
           if (sessionData.cold) {
             // Server restarted — conversation files survive on disk, no live runtime.
             coldRestoreId = storedSessionId;
