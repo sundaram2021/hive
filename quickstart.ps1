@@ -944,11 +944,15 @@ if (Test-Path $HiveConfigFile) {
             $PrevProvider = if ($prevLlm.provider) { $prevLlm.provider } else { "" }
             $PrevModel = if ($prevLlm.model) { $prevLlm.model } else { "" }
             $PrevEnvVar = if ($prevLlm.api_key_env_var) { $prevLlm.api_key_env_var } else { "" }
-            if ($prevLlm.use_claude_code_subscription) { $PrevSubMode = "claude_code" }
-            elseif ($prevLlm.use_codex_subscription) { $PrevSubMode = "codex" }
-            elseif ($prevLlm.use_kimi_code_subscription) { $PrevSubMode = "kimi_code" }
+            if ($prevLlm.auth_mode -eq "claude_code") { $PrevSubMode = "claude_code" }
+            elseif ($prevLlm.auth_mode -eq "codex") { $PrevSubMode = "codex" }
+            elseif ($prevLlm.auth_mode -eq "kimi_code") { $PrevSubMode = "kimi_code" }
+            elseif ($prevLlm.provider -eq "minimax" -or ($prevLlm.api_base -and $prevLlm.api_base -like "*api.minimax.io*")) { $PrevSubMode = "minimax_code" }
             elseif ($prevLlm.api_base -and $prevLlm.api_base -like "*api.z.ai*") { $PrevSubMode = "zai_code" }
             elseif ($prevLlm.api_base -and $prevLlm.api_base -like "*api.kimi.com*") { $PrevSubMode = "kimi_code" }
+            elseif ($prevLlm.use_claude_code_subscription) { $PrevSubMode = "claude_code" }
+            elseif ($prevLlm.use_codex_subscription) { $PrevSubMode = "codex" }
+            elseif ($prevLlm.use_kimi_code_subscription) { $PrevSubMode = "kimi_code" }
         }
     } catch { }
 }
@@ -975,16 +979,18 @@ if ($PrevSubMode -or $PrevProvider) {
             "claude_code" { $DefaultChoice = "1" }
             "zai_code"    { $DefaultChoice = "2" }
             "codex"       { $DefaultChoice = "3" }
-            "kimi_code"   { $DefaultChoice = "4" }
+            "minimax_code" { $DefaultChoice = "4" }
+            "kimi_code"   { $DefaultChoice = "5" }
         }
         if (-not $DefaultChoice) {
             switch ($PrevProvider) {
-                "anthropic" { $DefaultChoice = "5" }
-                "openai"    { $DefaultChoice = "6" }
-                "gemini"    { $DefaultChoice = "7" }
-                "groq"      { $DefaultChoice = "8" }
-                "cerebras"  { $DefaultChoice = "9" }
-                "kimi"      { $DefaultChoice = "4" }
+                "anthropic" { $DefaultChoice = "6" }
+                "openai"    { $DefaultChoice = "7" }
+                "gemini"    { $DefaultChoice = "8" }
+                "groq"      { $DefaultChoice = "9" }
+                "cerebras"  { $DefaultChoice = "10" }
+                "minimax"   { $DefaultChoice = "4" }
+                "kimi"      { $DefaultChoice = "5" }
             }
         }
     }
@@ -1377,19 +1383,22 @@ if ($SelectedProviderId) {
             model              = $SelectedModel
             max_tokens         = $SelectedMaxTokens
             max_context_tokens = $SelectedMaxContextTokens
+            auth_mode          = "api_key"
         }
         created_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss+00:00")
     }
 
     if ($SubscriptionMode -eq "claude_code") {
-        $config.llm["use_claude_code_subscription"] = $true
+        $config.llm["auth_mode"] = "claude_code"
     } elseif ($SubscriptionMode -eq "codex") {
-        $config.llm["use_codex_subscription"] = $true
+        $config.llm["auth_mode"] = "codex"
     } elseif ($SubscriptionMode -eq "zai_code") {
         $config.llm["api_base"] = "https://api.z.ai/api/coding/paas/v4"
         $config.llm["api_key_env_var"] = $SelectedEnvVar
     } elseif ($SubscriptionMode -eq "kimi_code") {
-        $config.llm["api_base"] = "https://api.kimi.com/coding"
+        $config.llm["auth_mode"] = "kimi_code"
+    } elseif ($SubscriptionMode -eq "minimax_code") {
+        $config.llm["api_base"] = $SelectedApiBase
         $config.llm["api_key_env_var"] = $SelectedEnvVar
     } else {
         $config.llm["api_key_env_var"] = $SelectedEnvVar
@@ -1720,14 +1729,13 @@ if ($CodexAvailable) {
     Write-Host ""
 }
 
-# Auto-launch dashboard or show manual instructions
+# Show dashboard start instructions (do not auto-launch)
 if ($FrontendBuilt) {
-    Write-Color -Text "Launching dashboard..." -Color White
+    Write-Color -Text "Dashboard ready." -Color White
     Write-Host ""
-    Write-Color -Text "  Starting server on http://localhost:8787" -Color DarkGray
-    Write-Color -Text "  Press Ctrl+C to stop" -Color DarkGray
+    Write-Color -Text "  Start it when you're ready:" -Color DarkGray
+    Write-Color -Text "     .\hive.ps1 open" -Color Cyan
     Write-Host ""
-    & (Join-Path $ScriptDir "hive.ps1") open
 } else {
     Write-Color -Text "═══════════════════════════════════════════════════════" -Color Yellow
     Write-Host ""
@@ -1743,7 +1751,7 @@ if ($FrontendBuilt) {
     Write-Host ""
     Write-Host "  Launch the interactive dashboard to browse and run agents:"
     Write-Host "  You can start an example agent or an agent built by yourself:"
-    Write-Color -Text "     .\hive.ps1 tui" -Color Cyan
+    Write-Color -Text "     .\hive.ps1 open" -Color Cyan
     Write-Host ""
 
     if ($SelectedProviderId -or $credKey) {

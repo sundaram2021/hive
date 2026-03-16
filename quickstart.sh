@@ -673,6 +673,42 @@ fi
 HIVE_CONFIG_DIR="$HOME/.hive"
 HIVE_CONFIG_FILE="$HIVE_CONFIG_DIR/configuration.json"
 
+is_windows_posix_shell() {
+    case "${OSTYPE:-}" in
+        msys*|cygwin*)
+            return 0
+            ;;
+    esac
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+to_python_path() {
+    local path="$1"
+
+    if is_windows_posix_shell; then
+        if command -v cygpath >/dev/null 2>&1; then
+            cygpath -w "$path"
+            return
+        fi
+        case "$path" in
+            /[a-zA-Z]/*)
+                local drive="${path:1:1}"
+                printf '%s\n' "${drive}:/${path:3}"
+                return
+                ;;
+        esac
+    fi
+
+    printf '%s\n' "$path"
+}
+
+PY_HIVE_CONFIG_FILE="$(to_python_path "$HIVE_CONFIG_FILE")"
+
 # Detect user's shell rc file
 detect_shell_rc() {
     local shell_name
@@ -780,16 +816,15 @@ prompt_model_selection() {
 }
 
 # Function to save configuration
-# Args: provider_id env_var model max_tokens max_context_tokens [use_claude_code_sub] [api_base] [use_codex_sub]
+# Args: provider_id env_var model max_tokens max_context_tokens [auth_mode] [api_base]
 save_configuration() {
     local provider_id="$1"
     local env_var="$2"
     local model="$3"
     local max_tokens="$4"
     local max_context_tokens="$5"
-    local use_claude_code_sub="${6:-}"
+    local auth_mode="${6:-api_key}"
     local api_base="${7:-}"
-    local use_codex_sub="${8:-}"
 
     # Fallbacks if not provided
     if [ -z "$model" ]; then
@@ -804,32 +839,43 @@ save_configuration() {
 
     mkdir -p "$HIVE_CONFIG_DIR"
 
-    $PYTHON_CMD -c "
+    "$PYTHON_CMD" - \
+        "$provider_id" \
+        "$env_var" \
+        "$model" \
+        "$max_tokens" \
+        "$max_context_tokens" \
+        "$auth_mode" \
+        "$api_base" \
+        "$PY_HIVE_CONFIG_FILE" <<'PY'
 import json
+import sys
+from datetime import UTC, datetime
+
+provider_id, env_var, model, max_tokens, max_context_tokens, auth_mode, api_base, config_path = (
+    sys.argv[1:9]
+)
+
 config = {
-    'llm': {
-        'provider': '$provider_id',
-        'model': '$model',
-        'max_tokens': $max_tokens,
-        'max_context_tokens': $max_context_tokens,
-        'api_key_env_var': '$env_var'
+    "llm": {
+        "provider": provider_id,
+        "model": model,
+        "max_tokens": int(max_tokens),
+        "max_context_tokens": int(max_context_tokens),
+        "api_key_env_var": env_var,
+        "auth_mode": auth_mode or "api_key",
     },
-    'created_at': '$(date -u +"%Y-%m-%dT%H:%M:%S+00:00")'
+    "created_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00"),
 }
-if '$use_claude_code_sub' == 'true':
-    config['llm']['use_claude_code_subscription'] = True
-    # No api_key_env_var needed for Claude Code subscription
-    config['llm'].pop('api_key_env_var', None)
-if '$use_codex_sub' == 'true':
-    config['llm']['use_codex_subscription'] = True
-    # No api_key_env_var needed for Codex subscription
-    config['llm'].pop('api_key_env_var', None)
-if '$api_base':
-    config['llm']['api_base'] = '$api_base'
-with open('$HIVE_CONFIG_FILE', 'w') as f:
+if config["llm"]["auth_mode"] in ("claude_code", "codex", "kimi_code"):
+    # Subscription auth reads credentials from the local CLI state, not env vars.
+    config["llm"].pop("api_key_env_var", None)
+if api_base:
+    config["llm"]["api_base"] = api_base
+with open(config_path, "w", encoding="utf-8") as f:
     json.dump(config, f, indent=2)
 print(json.dumps(config, indent=2))
-" 2>/dev/null
+PY
 }
 
 # Source shell rc file to pick up existing env vars (temporarily disable set -e)
@@ -905,25 +951,31 @@ PREV_MODEL=""
 PREV_ENV_VAR=""
 PREV_SUB_MODE=""
 if [ -f "$HIVE_CONFIG_FILE" ]; then
-    eval "$($PYTHON_CMD -c "
+    eval "$("$PYTHON_CMD" - "$PY_HIVE_CONFIG_FILE" <<'PY'
 import json, sys
 try:
-    with open('$HIVE_CONFIG_FILE') as f:
+    with open(sys.argv[1], encoding='utf-8-sig') as f:
         c = json.load(f)
     llm = c.get('llm', {})
     print(f'PREV_PROVIDER={llm.get(\"provider\", \"\")}')
     print(f'PREV_MODEL={llm.get(\"model\", \"\")}')
     print(f'PREV_ENV_VAR={llm.get(\"api_key_env_var\", \"\")}')
     sub = ''
-    if llm.get('use_claude_code_subscription'): sub = 'claude_code'
-    elif llm.get('use_codex_subscription'): sub = 'codex'
-    elif llm.get('use_kimi_code_subscription'): sub = 'kimi_code'
+    auth_mode = llm.get('auth_mode', '')
+    if auth_mode == 'claude_code': sub = 'claude_code'
+    elif auth_mode == 'codex': sub = 'codex'
+    elif auth_mode == 'kimi_code': sub = 'kimi_code'
     elif llm.get('provider', '') == 'minimax' or 'api.minimax.io' in llm.get('api_base', ''): sub = 'minimax_code'
     elif 'api.z.ai' in llm.get('api_base', ''): sub = 'zai_code'
+    elif 'api.kimi.com' in llm.get('api_base', ''): sub = 'kimi_code'
+    elif llm.get('use_claude_code_subscription'): sub = 'claude_code'
+    elif llm.get('use_codex_subscription'): sub = 'codex'
+    elif llm.get('use_kimi_code_subscription'): sub = 'kimi_code'
     print(f'PREV_SUB_MODE={sub}')
 except Exception:
     pass
-" 2>/dev/null)" || true
+PY
+)" || true
 fi
 
 # Compute default menu number from previous config (only if credential is still valid)
@@ -1318,18 +1370,56 @@ fi
 if [ -n "$SELECTED_PROVIDER_ID" ]; then
     echo ""
     echo -n "  Saving configuration... "
-    if [ "$SUBSCRIPTION_MODE" = "claude_code" ]; then
-        save_configuration "$SELECTED_PROVIDER_ID" "" "$SELECTED_MODEL" "$SELECTED_MAX_TOKENS" "$SELECTED_MAX_CONTEXT_TOKENS" "true" "" > /dev/null
-    elif [ "$SUBSCRIPTION_MODE" = "codex" ]; then
-        save_configuration "$SELECTED_PROVIDER_ID" "" "$SELECTED_MODEL" "$SELECTED_MAX_TOKENS" "$SELECTED_MAX_CONTEXT_TOKENS" "" "" "true" > /dev/null
-    elif [ "$SUBSCRIPTION_MODE" = "zai_code" ]; then
-        save_configuration "$SELECTED_PROVIDER_ID" "$SELECTED_ENV_VAR" "$SELECTED_MODEL" "$SELECTED_MAX_TOKENS" "$SELECTED_MAX_CONTEXT_TOKENS" "" "https://api.z.ai/api/coding/paas/v4" > /dev/null
-    elif [ "$SUBSCRIPTION_MODE" = "minimax_code" ]; then
-        save_configuration "$SELECTED_PROVIDER_ID" "$SELECTED_ENV_VAR" "$SELECTED_MODEL" "$SELECTED_MAX_TOKENS" "$SELECTED_MAX_CONTEXT_TOKENS" "" "$SELECTED_API_BASE" > /dev/null
-    elif [ "$SUBSCRIPTION_MODE" = "kimi_code" ]; then
-        save_configuration "$SELECTED_PROVIDER_ID" "$SELECTED_ENV_VAR" "$SELECTED_MODEL" "$SELECTED_MAX_TOKENS" "$SELECTED_MAX_CONTEXT_TOKENS" "" "$SELECTED_API_BASE" > /dev/null
-    else
-        save_configuration "$SELECTED_PROVIDER_ID" "$SELECTED_ENV_VAR" "$SELECTED_MODEL" "$SELECTED_MAX_TOKENS" "$SELECTED_MAX_CONTEXT_TOKENS" > /dev/null
+    save_args=(
+        "$SELECTED_PROVIDER_ID"
+        "$SELECTED_ENV_VAR"
+        "$SELECTED_MODEL"
+        "$SELECTED_MAX_TOKENS"
+        "$SELECTED_MAX_CONTEXT_TOKENS"
+        "api_key"
+    )
+    case "$SUBSCRIPTION_MODE" in
+        claude_code)
+            save_args=(
+                "$SELECTED_PROVIDER_ID"
+                ""
+                "$SELECTED_MODEL"
+                "$SELECTED_MAX_TOKENS"
+                "$SELECTED_MAX_CONTEXT_TOKENS"
+                "claude_code"
+            )
+            ;;
+        codex)
+            save_args=(
+                "$SELECTED_PROVIDER_ID"
+                ""
+                "$SELECTED_MODEL"
+                "$SELECTED_MAX_TOKENS"
+                "$SELECTED_MAX_CONTEXT_TOKENS"
+                "codex"
+            )
+            ;;
+        zai_code)
+            save_args+=("https://api.z.ai/api/coding/paas/v4")
+            ;;
+        minimax_code)
+            save_args+=("$SELECTED_API_BASE")
+            ;;
+        kimi_code)
+            save_args=(
+                "$SELECTED_PROVIDER_ID"
+                ""
+                "$SELECTED_MODEL"
+                "$SELECTED_MAX_TOKENS"
+                "$SELECTED_MAX_CONTEXT_TOKENS"
+                "kimi_code"
+            )
+            ;;
+    esac
+    if ! save_configuration "${save_args[@]}" > /dev/null; then
+        echo -e "${RED}failed${NC}"
+        echo -e "  ${RED}Could not write ~/.hive/configuration.json${NC}"
+        exit 1
     fi
     echo -e "${GREEN}⬢${NC}"
     echo -e "  ${DIM}~/.hive/configuration.json${NC}"
@@ -1345,22 +1435,32 @@ echo -e "${GREEN}⬢${NC} Browser automation enabled"
 
 # Patch gcu_enabled into configuration.json
 if [ -f "$HIVE_CONFIG_FILE" ]; then
-    uv run python -c "
+    "$PYTHON_CMD" - "$PY_HIVE_CONFIG_FILE" <<'PY'
 import json
-with open('$HIVE_CONFIG_FILE') as f:
+import sys
+
+config_path = sys.argv[1]
+with open(config_path, encoding="utf-8-sig") as f:
     config = json.load(f)
-config['gcu_enabled'] = True
-with open('$HIVE_CONFIG_FILE', 'w') as f:
+config["gcu_enabled"] = True
+with open(config_path, "w", encoding="utf-8") as f:
     json.dump(config, f, indent=2)
-"
+PY
 else
     mkdir -p "$HIVE_CONFIG_DIR"
-    uv run python -c "
+    "$PYTHON_CMD" - "$PY_HIVE_CONFIG_FILE" <<'PY'
 import json
-config = {'gcu_enabled': True, 'created_at': '$(date -u +"%Y-%m-%dT%H:%M:%S+00:00")'}
-with open('$HIVE_CONFIG_FILE', 'w') as f:
+import sys
+from datetime import UTC, datetime
+
+config_path = sys.argv[1]
+config = {
+    "gcu_enabled": True,
+    "created_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+}
+with open(config_path, "w", encoding="utf-8") as f:
     json.dump(config, f, indent=2)
-"
+PY
 fi
 
 echo ""
@@ -1605,17 +1705,13 @@ if [ "$CODEX_AVAILABLE" = true ]; then
     echo ""
 fi
 
-# Auto-launch dashboard if frontend was built
+# Show dashboard start instructions (do not auto-launch)
 if [ "$FRONTEND_BUILT" = true ]; then
-    echo -e "${BOLD}Launching dashboard...${NC}"
+    echo -e "${BOLD}Dashboard ready.${NC}"
     echo ""
-    echo -e "  ${DIM}Starting server on http://localhost:8787${NC}"
-    echo -e "  ${DIM}Press Ctrl+C to stop${NC}"
+    echo -e "  Start it when you're ready:"
+    echo -e "     ${CYAN}hive open${NC}"
     echo ""
-    echo -e "  ${DIM}Tip: You can restart the dashboard anytime with:${NC} ${CYAN}hive open${NC}"
-    echo ""
-    # exec replaces the quickstart process with hive open
-    exec "$SCRIPT_DIR/hive" open
 else
     # No frontend — show manual instructions
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
